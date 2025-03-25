@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   experimental: {
-    serverExternalPackages: ['@browserbasehq/stagehand']
+    externalPackages: ['@browserbasehq/stagehand']
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {
