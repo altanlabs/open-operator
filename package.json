@@ -38,5 +38,19 @@
     "postcss": "^8",
     "tailwindcss": "^3.4.1",
     "typescript": "^5"
-  }
+  },
+  "description": "> [!WARNING] > This is simply a proof of concept. > Browserbase aims not to compete with web agents, but rather to provide all the necessary tools for anybody to build their own web agent. We strongly recommend you check out both [Browserbase](https://www.browserbase.com) and our open source project [Stagehand](https://www.stagehand.dev) to build your own web agent.",
+  "main": "test-agent.js",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/altanlabs/open-operator.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/altanlabs/open-operator/issues"
+  },
+  "homepage": "https://github.com/altanlabs/open-operator#readme"
 }
