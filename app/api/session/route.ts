@@ -77,8 +77,16 @@ function getClosestRegion(timezone?: string): BrowserbaseRegion {
 }
 
 async function createSession(timezone?: string, contextId?: string) {
+  // Validate environment variables
+  if (!process.env.BROWSERBASE_API_KEY) {
+    throw new Error('BROWSERBASE_API_KEY environment variable is not set. Please check your Vercel environment variables configuration.');
+  }
+  if (!process.env.BROWSERBASE_PROJECT_ID) {
+    throw new Error('BROWSERBASE_PROJECT_ID environment variable is not set. Please check your Vercel environment variables configuration.');
+  }
+
   const bb = new Browserbase({
-    apiKey: process.env.BROWSERBASE_API_KEY!,
+    apiKey: process.env.BROWSERBASE_API_KEY,
   });
   const browserSettings: { context?: { id: string; persist: boolean } } = {};
   if (contextId) {
@@ -130,6 +138,12 @@ async function getDebugUrl(sessionId: string) {
 
 export async function POST(request: Request) {
   try {
+    // Add debug logging
+    console.log('Environment variables:', {
+      BROWSERBASE_API_KEY: process.env.BROWSERBASE_API_KEY ? 'Present' : 'Missing',
+      BROWSERBASE_PROJECT_ID: process.env.BROWSERBASE_PROJECT_ID ? 'Present' : 'Missing'
+    });
+
     const body = await request.json();
     const timezone = body.timezone as string;
     const providedContextId = body.contextId as string;
@@ -146,8 +160,18 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error("Error creating session:", error);
+    // Add more detailed error information
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error("Full error details:", {
+      message: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+      env: {
+        BROWSERBASE_API_KEY: process.env.BROWSERBASE_API_KEY ? 'Present' : 'Missing',
+        BROWSERBASE_PROJECT_ID: process.env.BROWSERBASE_PROJECT_ID ? 'Present' : 'Missing'
+      }
+    });
     return NextResponse.json(
-      { success: false, error: "Failed to create session" },
+      { success: false, error: `Failed to create session: ${errorMessage}` },
       { status: 500 }
     );
   }
