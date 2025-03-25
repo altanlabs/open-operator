@@ -447,6 +447,8 @@ async function* executeAgentWithStream({
   }
 }
 
+export const runtime = 'edge';
+
 export async function POST(request: Request) {
   // Validate API key first
   const validationError = validateApiKey(request);

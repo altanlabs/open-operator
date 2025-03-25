@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import Browserbase from "@browserbasehq/sdk";
 
+// Add runtime configuration for Edge
+export const runtime = 'edge';
+
 type BrowserbaseRegion =
   | "us-west-2"
   | "us-east-1"
@@ -93,51 +96,80 @@ async function createSession(timezone?: string, contextId?: string) {
       projectIdPresent: !!process.env.BROWSERBASE_PROJECT_ID
     });
 
-    const bb = new Browserbase({
-      apiKey: process.env.BROWSERBASE_API_KEY
-    });
-
-    const browserSettings: { context?: { id: string; persist: boolean } } = {};
-    
+    // Create session directly using fetch instead of SDK
     try {
-      if (contextId) {
-        browserSettings.context = {
-          id: contextId,
-          persist: true,
-        };
-      } else {
+      // First create context if needed
+      let contextIdToUse = contextId;
+      if (!contextId) {
         console.log('Creating new context...');
-        const context = await bb.contexts.create({
-          projectId: process.env.BROWSERBASE_PROJECT_ID,
+        const contextResponse = await fetch('https://api.browserbase.com/v1/contexts', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${process.env.BROWSERBASE_API_KEY}`
+          },
+          body: JSON.stringify({
+            projectId: process.env.BROWSERBASE_PROJECT_ID
+          })
         });
-        browserSettings.context = {
-          id: context.id,
-          persist: true,
-        };
-        console.log('Context created:', context.id);
+
+        if (!contextResponse.ok) {
+          throw new Error(`Failed to create context: ${await contextResponse.text()}`);
+        }
+
+        const contextData = await contextResponse.json();
+        contextIdToUse = contextData.id;
+        console.log('Context created:', contextIdToUse);
       }
 
-      console.log('Creating session with settings:', {
-        projectId: process.env.BROWSERBASE_PROJECT_ID,
-        region: getClosestRegion(timezone),
-        contextId: browserSettings.context?.id
+      // Create session
+      console.log('Creating session...');
+      const sessionResponse = await fetch('https://api.browserbase.com/v1/sessions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${process.env.BROWSERBASE_API_KEY}`
+        },
+        body: JSON.stringify({
+          projectId: process.env.BROWSERBASE_PROJECT_ID,
+          browserSettings: {
+            context: {
+              id: contextIdToUse,
+              persist: true
+            }
+          },
+          keepAlive: true,
+          region: getClosestRegion(timezone)
+        })
       });
 
-      const session = await bb.sessions.create({
-        projectId: process.env.BROWSERBASE_PROJECT_ID,
-        browserSettings,
-        keepAlive: true,
-        region: getClosestRegion(timezone),
+      if (!sessionResponse.ok) {
+        throw new Error(`Failed to create session: ${await sessionResponse.text()}`);
+      }
+
+      const sessionData = await sessionResponse.json();
+      console.log('Session created successfully:', sessionData.id);
+
+      // Get debug URL
+      const debugResponse = await fetch(`https://api.browserbase.com/v1/sessions/${sessionData.id}/debug`, {
+        headers: {
+          'Authorization': `Bearer ${process.env.BROWSERBASE_API_KEY}`
+        }
       });
 
-      console.log('Session created successfully:', session.id);
+      if (!debugResponse.ok) {
+        throw new Error(`Failed to get debug URL: ${await debugResponse.text()}`);
+      }
+
+      const debugData = await debugResponse.json();
 
       return {
-        session,
-        contextId: browserSettings.context?.id,
+        session: sessionData,
+        contextId: contextIdToUse,
+        debugUrl: debugData.debuggerFullscreenUrl
       };
     } catch (error) {
-      console.error('Error in session/context creation:', error);
+      console.error('Error in API calls:', error);
       throw error;
     }
   } catch (error) {
@@ -147,21 +179,26 @@ async function createSession(timezone?: string, contextId?: string) {
 }
 
 async function endSession(sessionId: string) {
-  const bb = new Browserbase({
-    apiKey: process.env.BROWSERBASE_API_KEY!,
-  });
-  await bb.sessions.update(sessionId, {
-    projectId: process.env.BROWSERBASE_PROJECT_ID!,
-    status: "REQUEST_RELEASE",
-  });
-}
+  try {
+    const response = await fetch(`https://api.browserbase.com/v1/sessions/${sessionId}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.BROWSERBASE_API_KEY}`
+      },
+      body: JSON.stringify({
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        status: "REQUEST_RELEASE"
+      })
+    });
 
-async function getDebugUrl(sessionId: string) {
-  const bb = new Browserbase({
-    apiKey: process.env.BROWSERBASE_API_KEY!,
-  });
-  const session = await bb.sessions.debug(sessionId);
-  return session.debuggerFullscreenUrl;
+    if (!response.ok) {
+      throw new Error(`Failed to end session: ${await response.text()}`);
+    }
+  } catch (error) {
+    console.error('Error ending session:', error);
+    throw error;
+  }
 }
 
 export async function POST(request: Request) {
@@ -172,17 +209,16 @@ export async function POST(request: Request) {
     const providedContextId = body.contextId as string;
 
     try {
-      const { session, contextId } = await createSession(
+      const { session, contextId, debugUrl } = await createSession(
         timezone,
         providedContextId
       );
-      const liveUrl = await getDebugUrl(session.id);
       
       console.log('Session creation completed successfully');
       return NextResponse.json({
         success: true,
         sessionId: session.id,
-        sessionUrl: liveUrl,
+        sessionUrl: debugUrl,
         contextId,
       });
     } catch (error) {
@@ -216,8 +252,20 @@ export async function POST(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const body = await request.json();
-  const sessionId = body.sessionId as string;
-  await endSession(sessionId);
-  return NextResponse.json({ success: true });
+  try {
+    const body = await request.json();
+    const sessionId = body.sessionId as string;
+    await endSession(sessionId);
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting session:', error);
+    return NextResponse.json(
+      { 
+        success: false, 
+        error: "Failed to delete session",
+        details: error instanceof Error ? error.message : String(error)
+      },
+      { status: 500 }
+    );
+  }
 }
