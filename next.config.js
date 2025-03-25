@@ -1,13 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
-  experimental: {
-    externalPackages: ['@browserbasehq/stagehand']
-  },
+  serverExternalPackages: ['@browserbasehq/stagehand'],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {
-        ...config.resolve.fallback,
         fs: false,
         net: false,
         tls: false,
@@ -15,14 +12,16 @@ const nextConfig = {
         os: false,
         path: false,
         stream: false,
+        util: false,
+        url: false,
         http: false,
         https: false,
         zlib: false,
-        'child_process': false
-      };
+        querystring: false,
+      }
     }
-    return config;
+    return config
   }
-};
+}
 
-export default nextConfig; 
+export default nextConfig 
