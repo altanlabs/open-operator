@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import Browserbase from "@browserbasehq/sdk";
 
+// Add explicit fetch import for Edge runtime
+import fetch from 'node-fetch';
+
 type BrowserbaseRegion =
   | "us-west-2"
   | "us-east-1"
@@ -77,45 +80,73 @@ function getClosestRegion(timezone?: string): BrowserbaseRegion {
 }
 
 async function createSession(timezone?: string, contextId?: string) {
-  // Validate environment variables
-  if (!process.env.BROWSERBASE_API_KEY) {
-    throw new Error('BROWSERBASE_API_KEY environment variable is not set. Please check your Vercel environment variables configuration.');
-  }
-  if (!process.env.BROWSERBASE_PROJECT_ID) {
-    throw new Error('BROWSERBASE_PROJECT_ID environment variable is not set. Please check your Vercel environment variables configuration.');
-  }
+  try {
+    // Validate environment variables
+    if (!process.env.BROWSERBASE_API_KEY) {
+      throw new Error('BROWSERBASE_API_KEY environment variable is not set');
+    }
+    if (!process.env.BROWSERBASE_PROJECT_ID) {
+      throw new Error('BROWSERBASE_PROJECT_ID environment variable is not set');
+    }
 
-  const bb = new Browserbase({
-    apiKey: process.env.BROWSERBASE_API_KEY,
-  });
-  const browserSettings: { context?: { id: string; persist: boolean } } = {};
-  if (contextId) {
-    browserSettings.context = {
-      id: contextId,
-      persist: true,
-    };
-  } else {
-    const context = await bb.contexts.create({
-      projectId: process.env.BROWSERBASE_PROJECT_ID!,
+    console.log('Creating Browserbase session with:', {
+      timezone,
+      contextId,
+      apiKeyPresent: !!process.env.BROWSERBASE_API_KEY,
+      projectIdPresent: !!process.env.BROWSERBASE_PROJECT_ID
     });
-    browserSettings.context = {
-      id: context.id,
-      persist: true,
-    };
-  }
 
-  console.log("timezone ", timezone);
-  console.log("getClosestRegion(timezone)", getClosestRegion(timezone));
-  const session = await bb.sessions.create({
-    projectId: process.env.BROWSERBASE_PROJECT_ID!,
-    browserSettings,
-    keepAlive: true,
-    region: getClosestRegion(timezone),
-  });
-  return {
-    session,
-    contextId: browserSettings.context?.id,
-  };
+    const bb = new Browserbase({
+      apiKey: process.env.BROWSERBASE_API_KEY
+    });
+
+    const browserSettings: { context?: { id: string; persist: boolean } } = {};
+    
+    try {
+      if (contextId) {
+        browserSettings.context = {
+          id: contextId,
+          persist: true,
+        };
+      } else {
+        console.log('Creating new context...');
+        const context = await bb.contexts.create({
+          projectId: process.env.BROWSERBASE_PROJECT_ID,
+        });
+        browserSettings.context = {
+          id: context.id,
+          persist: true,
+        };
+        console.log('Context created:', context.id);
+      }
+
+      console.log('Creating session with settings:', {
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        region: getClosestRegion(timezone),
+        contextId: browserSettings.context?.id
+      });
+
+      const session = await bb.sessions.create({
+        projectId: process.env.BROWSERBASE_PROJECT_ID,
+        browserSettings,
+        keepAlive: true,
+        region: getClosestRegion(timezone),
+      });
+
+      console.log('Session created successfully:', session.id);
+
+      return {
+        session,
+        contextId: browserSettings.context?.id,
+      };
+    } catch (error) {
+      console.error('Error in session/context creation:', error);
+      throw error;
+    }
+  } catch (error) {
+    console.error('Error in createSession:', error);
+    throw error;
+  }
 }
 
 async function endSession(sessionId: string) {
@@ -138,40 +169,50 @@ async function getDebugUrl(sessionId: string) {
 
 export async function POST(request: Request) {
   try {
-    // Add debug logging
-    console.log('Environment variables:', {
-      BROWSERBASE_API_KEY: process.env.BROWSERBASE_API_KEY ? 'Present' : 'Missing',
-      BROWSERBASE_PROJECT_ID: process.env.BROWSERBASE_PROJECT_ID ? 'Present' : 'Missing'
-    });
-
+    console.log('Starting session creation...');
     const body = await request.json();
     const timezone = body.timezone as string;
     const providedContextId = body.contextId as string;
-    const { session, contextId } = await createSession(
-      timezone,
-      providedContextId
-    );
-    const liveUrl = await getDebugUrl(session.id);
-    return NextResponse.json({
-      success: true,
-      sessionId: session.id,
-      sessionUrl: liveUrl,
-      contextId,
-    });
+
+    try {
+      const { session, contextId } = await createSession(
+        timezone,
+        providedContextId
+      );
+      const liveUrl = await getDebugUrl(session.id);
+      
+      console.log('Session creation completed successfully');
+      return NextResponse.json({
+        success: true,
+        sessionId: session.id,
+        sessionUrl: liveUrl,
+        contextId,
+      });
+    } catch (error) {
+      console.error('Detailed session creation error:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        timezone,
+        providedContextId
+      });
+      
+      return NextResponse.json(
+        { 
+          success: false, 
+          error: "Failed to create session",
+          details: error instanceof Error ? error.message : String(error)
+        },
+        { status: 500 }
+      );
+    }
   } catch (error) {
-    console.error("Error creating session:", error);
-    // Add more detailed error information
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error("Full error details:", {
-      message: errorMessage,
-      stack: error instanceof Error ? error.stack : undefined,
-      env: {
-        BROWSERBASE_API_KEY: process.env.BROWSERBASE_API_KEY ? 'Present' : 'Missing',
-        BROWSERBASE_PROJECT_ID: process.env.BROWSERBASE_PROJECT_ID ? 'Present' : 'Missing'
-      }
-    });
+    console.error('Error processing request:', error);
     return NextResponse.json(
-      { success: false, error: `Failed to create session: ${errorMessage}` },
+      { 
+        success: false, 
+        error: "Failed to process request",
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }
