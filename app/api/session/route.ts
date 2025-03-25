@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 // Configure for Edge runtime
-export const runtime = 'nodejs';
+export const runtime = 'edge';
 
 type BrowserbaseRegion =
   | "us-west-2"
