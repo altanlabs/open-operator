@@ -11,17 +11,40 @@ function validateApiKey(request: Request) {
   const apiKey = request.headers.get('x-api-key');
   const validApiKey = process.env.API_KEY;
   
+  // Add debug logging
+  console.log('API Key validation:', {
+    apiKeyPresent: !!apiKey,
+    validApiKeyPresent: !!validApiKey,
+    headerKeys: Array.from(request.headers.keys())
+  });
+  
   if (!validApiKey) {
-    console.error('API_KEY environment variable is not set');
+    console.error('API_KEY environment variable is not set in the server environment');
     return NextResponse.json(
-      { error: 'Server configuration error' },
+      { 
+        error: 'Server configuration error: API_KEY not set',
+        details: 'The API_KEY environment variable is not configured on the server'
+      },
       { status: 500 }
     );
   }
   
-  if (!apiKey || apiKey !== validApiKey) {
+  if (!apiKey) {
     return NextResponse.json(
-      { error: 'Invalid or missing API key' },
+      { 
+        error: 'Missing API key',
+        details: 'The x-api-key header is required'
+      },
+      { status: 401 }
+    );
+  }
+  
+  if (apiKey !== validApiKey) {
+    return NextResponse.json(
+      { 
+        error: 'Invalid API key',
+        details: 'The provided API key is not valid'
+      },
       { status: 401 }
     );
   }
