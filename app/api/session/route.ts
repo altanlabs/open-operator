@@ -1,9 +1,6 @@
 import { NextResponse } from "next/server";
 import Browserbase from "@browserbasehq/sdk";
 
-// Add explicit fetch import for Edge runtime
-import fetch from 'node-fetch';
-
 type BrowserbaseRegion =
   | "us-west-2"
   | "us-east-1"
